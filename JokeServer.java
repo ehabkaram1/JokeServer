@@ -1,6 +1,8 @@
 import java.io.*;
 import java.net.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class ToggleMode {
     private final AtomicInteger mode = new AtomicInteger(0);
@@ -17,9 +19,7 @@ class ToggleMode {
     }
 }
 
-
 public class JokeServer {
-    private static final ToggleMode modeManager = new ToggleMode();
     private static final String[] jokes = {
         "JA Parallel lines have so much in common. It’s a shame they’ll never meet.",
         "JB My granddad has the heart of a lion and a lifetime ban from the zoo.",
@@ -32,114 +32,193 @@ public class JokeServer {
         "PC A watched pot never boils.",
         "PD Better to light a candle than to curse the darkness."
     };
-    private static final AtomicInteger jokeIndex = new AtomicInteger(0);
-    private static final AtomicInteger proverbIndex = new AtomicInteger(0);
-        private static final ConcurrentHashMap<String, ClientState> clientStates = new ConcurrentHashMap<>();
-
+    private static final AtomicBoolean isJokeMode = new AtomicBoolean(true);
+    private static final ConcurrentHashMap<String, ClientState> clientStates = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws IOException {
-        int q_len = 6;
-        int clientPort = 45565;
-        int adminPort = 45566;
-
-        ServerSocket clientSock = new ServerSocket(clientPort, q_len);
-        ServerSocket adminSock = new ServerSocket(adminPort, q_len);
-
+        int clientPort = 4545;
+        int adminPort = 4546;
+    
+        ServerSocket clientSock = new ServerSocket(clientPort);
+        ServerSocket adminSock = new ServerSocket(adminPort);
+    
         System.out.println("Joke Server starting up, listening at port " + clientPort + " for clients and port " + adminPort + " for admin.");
-
-        // Client handler thread
+    
         new Thread(() -> {
             while (true) {
                 try {
-                    Socket sock = clientSock.accept();
-                    System.out.println("Client connection from " + sock);
-                    new JokeWorker(sock).start();
+                    Socket clientSocket = clientSock.accept();
+                    new Thread(new ClientHandler(clientSocket)).start();
                 } catch (IOException e) {
-                    System.out.println("Server client connection error: " + e.getMessage());
+                    System.err.println("Error accepting client connection: " + e.getMessage());
                 }
             }
         }).start();
-
-        // Admin handler thread
+    
         new Thread(() -> {
             while (true) {
-                try (Socket sock = adminSock.accept();
-                     PrintWriter out = new PrintWriter(sock.getOutputStream(), true)) {
-                    System.out.println("Admin connection from " + sock);
-
-                    boolean inJokeMode = modeManager.toggleMode();
-                    String modeString = inJokeMode ? "Joke Mode" : "Proverb Mode";
-                    System.out.println("Mode changed to: " + modeString);
-                    out.println("Mode is now: " + modeString);
+                try {
+                    Socket adminSocket = adminSock.accept();
+                    new Thread(new AdminHandler(adminSocket)).start();
                 } catch (IOException e) {
-                    System.out.println("Server admin connection error: " + e.getMessage());
+                    System.err.println("Error accepting admin connection: " + e.getMessage());
                 }
             }
         }).start();
     }
 
-    // JokeWorker as an inner class of JokeServer
-   // JokeWorker as an inner class of JokeServer
-// JokeWorker as an inner class of JokeServer
-// JokeWorker as an inner class of JokeServer
+    static class ClientHandler implements Runnable {
+        private Socket clientSocket;
 
-static class JokeWorker extends Thread {
-    private final Socket sock;
+        ClientHandler(Socket socket) {
+            this.clientSocket = socket;
+        }
 
-    JokeWorker(Socket sock) {
-        this.sock = sock;
-    }
+        @Override
+        public void run() {
+            try (ObjectInputStream in = new ObjectInputStream(clientSocket.getInputStream());
+                 ObjectOutputStream out = new ObjectOutputStream(clientSocket.getOutputStream())) {
+                 
+                String userName = (String) in.readObject();
+                System.out.println("User " + userName + " connected.");
 
-    public void run() {
-        try (ObjectOutputStream out = new ObjectOutputStream(sock.getOutputStream())) {
-            String message;
-            int index;
-            boolean isJokeMode;
-            synchronized (modeManager) {
-                isJokeMode = modeManager.getMode();
-            }
-            if (isJokeMode) { // Joke mode
-                index = jokeIndex.get();
-                message = jokes[index];
-                out.writeObject(message);
-                System.out.println("Sent: " + message);
-                if (index == jokes.length - 1) {
-                    System.out.println("JOKE CYCLE COMPLETED");
+                String clientKey = clientSocket.getInetAddress().getHostAddress() + ":" + clientSocket.getPort();
+                ClientState state = clientStates.computeIfAbsent(clientKey, k -> new ClientState());
+
+                while (true) {
+                    // Assuming the client sends a specific request object or signal; adjust as necessary
+                    Object request = in.readObject();
+                    if (request instanceof String && "quit".equalsIgnoreCase((String) request)) {
+                        break;
+                    }
+
+                    String response;
+                    if (isJokeMode.get()) {
+                        response = getJoke(state);
+                    } else {
+                        response = getProverb(state);
+                    }
+                    out.writeObject(response);
+                    out.flush();
                 }
-                jokeIndex.set((index + 1) % jokes.length);
-            } else { // Proverb mode
-                index = proverbIndex.get();
-                message = proverbs[index];
-                out.writeObject(message);
-                System.out.println("Sent: " + message);
-                if (index == proverbs.length - 1) {
-                    System.out.println("PROVERB CYCLE COMPLETED");
+            } catch (EOFException eof) {
+                // Client disconnected
+                System.out.println("Client disconnected.");
+            } catch (IOException | ClassNotFoundException e) {
+                System.err.println("Error handling client: " + e.getMessage());
+                e.printStackTrace();
+            } finally {
+                try {
+                    clientSocket.close();
+                } catch (IOException e) {
+                    System.err.println("Error closing client socket: " + e.getMessage());
                 }
-                proverbIndex.set((index + 1) % proverbs.length);
             }
-        } catch (IOException e) {
-            System.out.println("JokeWorker encountered an error: " + e.getMessage());
+        }
+
+        private String getJoke(ClientState state) {
+            int index = state.getNextJokeIndex();
+            return jokes[index];
+        }
+
+        private String getProverb(ClientState state) {
+            int index = state.getNextProverbIndex();
+            return proverbs[index];
         }
     }
-}
-} //added here
 
+    static class ClientState {
+        private int jokeIndex = 0;
+        private int proverbIndex = 0;
+
+        public synchronized int getNextJokeIndex() {
+            int index = jokeIndex % jokes.length;
+            jokeIndex++;
+            if (jokeIndex % jokes.length == 0) {
+                System.out.println("JOKE CYCLE COMPLETED");
+            }
+            return index;
+        }
+
+        public synchronized int getNextProverbIndex() {
+            int index = proverbIndex % proverbs.length;
+            proverbIndex++;
+            if (proverbIndex % proverbs.length == 0) {
+                System.out.println("PROVERB CYCLE COMPLETED");
+            }
+            return index;
+        }
+    }
+
+    static class AdminHandler implements Runnable {
+        private Socket adminSocket;
+    
+        AdminHandler(Socket socket) {
+            this.adminSocket = socket;
+        }
+    
+        @Override
+        public void run() {
+            try {
+                System.out.println("Admin connection established: " + adminSocket);
+                toggleMode(); // Toggle the server mode between joke and proverb
+                try (PrintWriter out = new PrintWriter(adminSocket.getOutputStream(), true)) {
+                    // Send back the new mode to the admin client
+                    out.println("Server mode changed to: " + (isJokeMode.get() ? "Joke Mode" : "Proverb Mode"));
+                }
+            } catch (IOException e) {
+                System.err.println("Admin handler error: " + e.getMessage());
+                e.printStackTrace();
+            } finally {
+                try {
+                    adminSocket.close();
+                } catch (IOException e) {
+                    System.err.println("Error closing admin socket: " + e.getMessage());
+                }
+            }
+        }
+    
+        private void toggleMode() {
+            isJokeMode.set(!isJokeMode.get()); // Toggle the mode
+            System.out.println("Mode toggled to: " + (isJokeMode.get() ? "Joke" : "Proverb"));
+        }
+    }
+    }
+
+   
 // JokeClient.java
 // JokeClient.java
 
 class JokeClient {
-    public static void main(String argv[]) {
-        String serverName = argv.length < 1 ? "localhost" : argv[0];
-        int port = 45565; // Ensure this matches the server's client port
+    public static void main(String[] args) {
+        String serverName = args.length > 0 ? args[0] : "localhost";
+        int port = 4545; // Adjust if your server is listening on a different port
+
+        System.out.println("JokeClient started. Connecting to " + serverName + " on port " + port);
 
         try (Socket socket = new Socket(serverName, port);
-             ObjectInputStream ois = new ObjectInputStream(socket.getInputStream())) {
-            System.out.println("Connected to the JokeServer at port " + port + ".");
-            String response = (String) ois.readObject(); // Read the joke or proverb
-            System.out.println("Received: " + response);
-        } catch (Exception e) {
-            System.out.println("JokeClient error: " + e.getMessage());
-            e.printStackTrace();
+             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+             ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+             BufferedReader consoleInput = new BufferedReader(new InputStreamReader(System.in))) {
+
+            System.out.print("Enter your name: ");
+            String userName = consoleInput.readLine();
+            out.writeObject(userName); // Send user name to the server
+
+            String userInput;
+            System.out.println("Type 'quit' to exit or press Enter to get a joke or a proverb.");
+            while (!(userInput = consoleInput.readLine()).equalsIgnoreCase("quit")) {
+                out.writeObject("request"); // Send a request signal to the server
+                out.flush();
+
+                String response = (String) in.readObject(); // Read response from the server
+                System.out.println(response);
+
+                System.out.println("\nType 'quit' to exit or press Enter to get another joke or a proverb.");
+            }
+
+        } catch (IOException | ClassNotFoundException e) {
+            System.err.println("Exception in JokeClient: " + e);
         }
     }
 }
@@ -147,7 +226,7 @@ class JokeClient {
 class JokeClientAdmin {
     public static void main(String argv[]) {
         String serverName = argv.length < 1 ? "localhost" : argv[0];
-        int adminPort = 45566; // Ensure this matches the server's admin port
+        int adminPort = 4546; // Ensure this matches the server's admin port
 
         try (Socket socket = new Socket(serverName, adminPort);
              BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -161,4 +240,3 @@ class JokeClientAdmin {
         }
     }
 }
-//} removed this
