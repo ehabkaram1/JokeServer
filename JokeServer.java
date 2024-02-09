@@ -34,6 +34,8 @@ public class JokeServer {
     };
     private static final AtomicInteger jokeIndex = new AtomicInteger(0);
     private static final AtomicInteger proverbIndex = new AtomicInteger(0);
+        private static final ConcurrentHashMap<String, ClientState> clientStates = new ConcurrentHashMap<>();
+
 
     public static void main(String[] args) throws IOException {
         int q_len = 6;
@@ -120,7 +122,7 @@ static class JokeWorker extends Thread {
         }
     }
 }
-
+} //added here
 
 // JokeClient.java
 // JokeClient.java
@@ -159,4 +161,4 @@ class JokeClientAdmin {
         }
     }
 }
-}
+//} removed this
