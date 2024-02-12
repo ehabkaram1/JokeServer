@@ -21,16 +21,16 @@ class ToggleMode {
 
 public class JokeServer {
     private static final String[] jokes = {
-            "JA Parallel lines have so much in common. It’s a shame they’ll never meet.",
-            "JB My granddad has the heart of a lion and a lifetime ban from the zoo.",
-            "JC Why don’t skeletons fight each other? They don’t have the guts.",
-            "JD What do you call an alligator in a vest? An investigator."
+            "JA <name-holder>: Parallel lines have so much in common. It’s a shame they’ll never meet.",
+            "JB <name-holder>: My granddad has the heart of a lion and a lifetime ban from the zoo.",
+            "JC <name-holder>: Why don’t skeletons fight each other? They don’t have the guts.",
+            "JD <name-holder>: What do you call an alligator in a vest? An investigator."
     };
     private static final String[] proverbs = {
-            "PA The early bird might get the worm, but the second mouse gets the cheese.",
-            "PB Fortune favors the bold.",
-            "PC A watched pot never boils.",
-            "PD Better to light a candle than to curse the darkness."
+            "PA <name-holder>: The early bird might get the worm, but the second mouse gets the cheese.",
+            "PB <name-holder>: Fortune favors the bold.",
+            "PC <name-holder>: A watched pot never boils.",
+            "PD <name-holder>: Better to light a candle than to curse the darkness."
     };
     private static final AtomicBoolean isJokeMode = new AtomicBoolean(true);
     private static final ConcurrentHashMap<String, ClientState> clientStates = new ConcurrentHashMap<>();
@@ -215,6 +215,7 @@ class JokeClient {
                 out.flush();
 
                 String response = (String) in.readObject(); // Read response from the server
+                response = response.replace("<name-holder>", userName);
                 System.out.println(response);
 
                 System.out.println("\nType 'quit' to exit or press Enter to get another joke or a proverb.");
