@@ -1,5 +1,8 @@
 import java.io.*;
 import java.net.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -128,23 +131,48 @@ public class JokeServer {
     }
 
     static class ClientState {
-        private int jokeIndex = 0;
-        private int proverbIndex = 0;
+        private List<Integer> jokesSent = new ArrayList<>();
+        private List<Integer> proverbsSent = new ArrayList<>();
+
+        public ClientState() {
+            resetJokes();
+            resetProverbs();
+        }
+
+        private void resetJokes() {
+            jokesSent.clear();
+            for (int i = 0; i < JokeServer.jokes.length; i++) {
+                jokesSent.add(i);
+            }
+            Collections.shuffle(jokesSent);
+        }
+
+        private void resetProverbs() {
+            proverbsSent.clear();
+            for (int i = 0; i < JokeServer.proverbs.length; i++) {
+                proverbsSent.add(i);
+            }
+            Collections.shuffle(proverbsSent);
+        }
 
         public synchronized int getNextJokeIndex() {
-            int index = jokeIndex % jokes.length;
-            jokeIndex++;
-            if (jokeIndex % jokes.length == 0) {
+            if (jokesSent.size() == 1) { // Check if this is the last joke in the cycle
                 System.out.println("JOKE CYCLE COMPLETED");
+            }
+            int index = jokesSent.remove(0);
+            if (jokesSent.isEmpty()) { // If all jokes have been sent, reset for a new cycle
+                resetJokes();
             }
             return index;
         }
 
         public synchronized int getNextProverbIndex() {
-            int index = proverbIndex % proverbs.length;
-            proverbIndex++;
-            if (proverbIndex % proverbs.length == 0) {
+            if (proverbsSent.size() == 1) { // Check if this is the last proverb in the cycle
                 System.out.println("PROVERB CYCLE COMPLETED");
+            }
+            int index = proverbsSent.remove(0);
+            if (proverbsSent.isEmpty()) { // If all proverbs have been sent, reset for a new cycle
+                resetProverbs();
             }
             return index;
         }
